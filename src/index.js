@@ -114,6 +114,7 @@ const likesRoutes = require('./routes/likes.routes');
 const bookmarksRoutes = require('./routes/bookmarks.routes');
 const notificationsRoutes = require('./routes/notifications.routes');
 const reportsRoutes = require('./routes/reports.routes');
+const userRoutes= require('./routes/user.routes')
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -199,6 +200,7 @@ app.use('/api/likes', likesRoutes);
 app.use('/api/bookmarks', bookmarksRoutes);
 app.use('/api/notifications', notificationsRoutes);
 app.use('/api/reports', reportsRoutes);
+app.use('/api/users',userRoutes );
 
 // 404 handler (after routes)
 app.use((req, res, next) => {

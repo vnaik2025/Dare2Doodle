@@ -1,11 +1,12 @@
 const express = require('express');
-const { listComments, addComment, removeComment,  } = require('../controllers/comment.controller');
+const { listComments, addComment, removeComment,updateComment  } = require('../controllers/comment.controller');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
 router.get('/:challengeId', listComments);
 router.post('/', authMiddleware, addComment);
+router.put('/:id', authMiddleware, updateComment);
 router.delete('/:id', authMiddleware, removeComment);
 
 module.exports = router;
