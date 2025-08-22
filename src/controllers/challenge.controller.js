@@ -50,7 +50,9 @@ const listChallenges = async (req, res) => {
     if (artStyle) queries.push(Query.equal('artStyle', artStyle));
     if (tag) queries.push(Query.contains('tags', tag));
     if (sort === 'new') queries.push(Query.orderDesc('$createdAt'));
-    if (sort === 'top') queries.push(Query.orderDesc('likes')); // example
+    if (sort === 'top') queries.push(Query.orderDesc('views'));
+
+    
 
     const challenges = await databases.listDocuments(DATABASE_ID, COLLECTION_ID, queries);
     res.json(challenges.documents);
