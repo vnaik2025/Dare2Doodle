@@ -18,5 +18,6 @@ router.get('/:id', getChallenge);
 router.post('/', authMiddleware, addChallenge);
 router.patch('/:id', authMiddleware, editChallenge);
 router.delete('/:id', authMiddleware, removeChallenge);
+router.get('/challenge/:id', getChallenge);
 
 module.exports = router;
