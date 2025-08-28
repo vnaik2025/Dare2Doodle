@@ -3,6 +3,7 @@ const {
   deleteLike,
   getLikes,
   getUserLike,
+   updateCommentService,
 } = require("../services/appwrite.service");
 const { fireNotification } = require("../utils/notifications.util");
 const {
@@ -34,14 +35,16 @@ const addLike = [
       let receiverId;
       if (targetType === "challenge") {
         const challenge = await getChallengeById(targetId);
-        if (!challenge)
-          return res.status(404).json({ error: "Target not found" });
+        if (!challenge) return res.status(404).json({ error: "Target not found" });
         receiverId = challenge.creatorId;
       } else if (targetType === "comment") {
         const comment = await getCommentById(targetId);
-        if (!comment)
-          return res.status(404).json({ error: "Target not found" });
+        if (!comment) return res.status(404).json({ error: "Target not found" });
         receiverId = comment.userId;
+
+        // ✅ Increment likes_count
+        const newCount = (comment.likes_count || 0) + 1;
+        await updateCommentService(targetId, { likes_count: newCount });
       }
 
       const data = {
@@ -54,29 +57,34 @@ const addLike = [
       const newLike = await createLike(data);
 
       // Fire notification
-      await fireNotification(
-        "like",
-        req.user.id,
-        targetType,
-        targetId,
-        receiverId
-      );
+      await fireNotification("like", req.user.id, targetType, targetId, receiverId);
 
       res.status(201).json(newLike);
     } catch (error) {
+      console.error("addLike error:", error);
       res.status(500).json({ error: "Failed to add like" });
     }
   },
 ];
+
 
 // Remove like
 const removeLike = async (req, res) => {
   try {
     const { targetType, targetId } = req.query;
 
+    if (targetType === "comment") {
+      const comment = await getCommentById(targetId);
+      if (comment) {
+        const newCount = Math.max((comment.likes_count || 0) - 1, 0);
+        await updateCommentService(targetId, { likes_count: newCount });
+      }
+    }
+
     await deleteLike(req.user.id, targetType, targetId);
     res.status(204).send();
   } catch (error) {
+    console.error("removeLike error:", error);
     res.status(500).json({ error: "Failed to remove like" });
   }
 };
