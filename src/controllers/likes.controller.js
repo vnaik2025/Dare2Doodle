@@ -3,7 +3,7 @@ const {
   deleteLike,
   getLikes,
   getUserLike,
-   updateCommentService,
+  updateCommentService,
 } = require("../services/appwrite.service");
 const { fireNotification } = require("../utils/notifications.util");
 const {
@@ -13,6 +13,7 @@ const {
 const validate = require("../middleware/validation.middleware");
 const { writeLimiter } = require("../middleware/rateLimit.middleware");
 const z = require("zod");
+const jwt = require("jsonwebtoken");
 
 const likeSchema = z.object({
   targetType: z.enum(["challenge", "comment"]),
@@ -42,7 +43,7 @@ const addLike = [
         if (!comment) return res.status(404).json({ error: "Target not found" });
         receiverId = comment.userId;
 
-        // ✅ Increment likes_count
+        // Increment likes_count
         const newCount = (comment.likes_count || 0) + 1;
         await updateCommentService(targetId, { likes_count: newCount });
       }
@@ -66,7 +67,6 @@ const addLike = [
     }
   },
 ];
-
 
 // Remove like
 const removeLike = async (req, res) => {
@@ -94,12 +94,28 @@ const getLikeInfo = async (req, res) => {
   try {
     const { targetType, targetId } = req.query;
 
+    // Fetch all likes for the target
     const likes = await getLikes(targetType, targetId);
 
     let likedByMe = false;
-    if (req.user) {
-      const userLike = await getUserLike(req.user.id, targetType, targetId);
-      likedByMe = !!userLike;
+    let userId = null;
+
+    // Extract JWT token from Authorization header
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.split(" ")[1];
+      try {
+        // Verify and decode JWT token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        userId = decoded.id; // Assuming the JWT payload has an 'id' field
+        if (userId) {
+          const userLike = await getUserLike(userId, targetType, targetId);
+          likedByMe = !!userLike;
+        }
+      } catch (jwtError) {
+        console.warn("JWT verification failed:", jwtError.message);
+        // If token is invalid, proceed without setting likedByMe
+      }
     }
 
     res.json({ count: likes.length, likedByMe });
@@ -108,6 +124,5 @@ const getLikeInfo = async (req, res) => {
     res.status(500).json({ error: "Failed to get likes" });
   }
 };
-
 
 module.exports = { addLike, removeLike, getLikeInfo };
