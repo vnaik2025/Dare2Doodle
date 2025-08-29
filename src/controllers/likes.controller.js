@@ -97,18 +97,17 @@ const getLikeInfo = async (req, res) => {
     const likes = await getLikes(targetType, targetId);
 
     let likedByMe = false;
-    // if (req.user) {
-      const userLike = await getUserLike("68a2ec5300050ad5dd84", targetType, targetId);
-      console.log("userlike", userLike);
+    if (req.user) {
+      const userLike = await getUserLike(req.user.id, targetType, targetId);
       likedByMe = !!userLike;
-      console.log("userlike", likedByMe);
-    // }
+    }
 
     res.json({ count: likes.length, likedByMe });
   } catch (error) {
-    console.error("getLikeInfo error:", error); // 👈 add logging
+    console.error("getLikeInfo error:", error);
     res.status(500).json({ error: "Failed to get likes" });
   }
 };
+
 
 module.exports = { addLike, removeLike, getLikeInfo };
