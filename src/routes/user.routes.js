@@ -4,6 +4,7 @@ const {
   getLikedPosts,
   getCommentedPosts,
   getProfileDetails,
+  getUserDetails,
 } = require('../controllers/user.controller');
 const authMiddleware = require('../middleware/authMiddleware');
 
@@ -20,5 +21,8 @@ router.get('/commented-posts', authMiddleware, getCommentedPosts);
 
 // Get complete user profile details
 router.get('/profile', authMiddleware, getProfileDetails);
+
+// Get user details by ID
+router.get('/:userId', authMiddleware, getUserDetails);
 
 module.exports = router;
