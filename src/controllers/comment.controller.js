@@ -303,6 +303,78 @@ const listComments = async (req, res) => {
 };
 
 // --------- Add Comment / Submission / Reply ---------
+// const addComment = [
+//   writeLimiter,
+//   upload.single('media'), // optional file
+//   validate(createSchema),
+//   async (req, res) => {
+//     try {
+//       const { challengeId, parentCommentId } = req.body;
+//       const { file } = req;
+
+//       // Clean body
+//       const { ...cleanBody } = req.body;
+
+//       // Validate parent if reply
+//       let receiverId;
+//       if (parentCommentId) {
+//         const parent = await getCommentById(parentCommentId);
+//         if (!parent) return res.status(400).json({ error: 'Parent comment not found' });
+//         if (parent.challengeId !== challengeId) {
+//           return res.status(400).json({ error: 'Parent comment does not belong to this challenge' });
+//         }
+//         receiverId = parent.userId;
+//       } else {
+//         // Submissions must have media (image/video)
+//         if (!file && !req.body.mediaUrl) {
+//           return res.status(400).json({ error: 'Submissions must have media' });
+//         }
+//         const challenge = await getChallengeById(challengeId);
+//         if (!challenge) return res.status(400).json({ error: 'Challenge not found' });
+//         receiverId = challenge.creatorId;
+//       }
+
+//       // Upload to ImageKit if file is provided
+//       let mediaUrl = null;
+//       if (file) {
+//         console.log('Uploading to ImageKit:', file.originalname);
+//         const uploadResponse = await imagekit.upload({
+//           file: file.buffer,
+//           fileName: `comment_${Date.now()}_${file.originalname}`,
+//           folder: '/submissions',
+//         });
+//         console.log('ImageKit upload response:', uploadResponse);
+//         mediaUrl = `${uploadResponse.url}|${uploadResponse.fileId}`;
+//       } else if (req.body.mediaUrl) {
+//         mediaUrl = req.body.mediaUrl;
+//       }
+
+//       const data = {
+//         ...cleanBody,
+//         userId: req.user.id,
+//         createdAt: new Date().toISOString(),
+//         mediaUrl,
+//       };
+
+//       const newComment = await createComment(data);
+
+//       // Notifications
+//       if (parentCommentId) {
+//         await fireNotification('reply', req.user.id, 'comment', newComment.$id, receiverId);
+//       } else {
+//         await fireNotification('new_submission', req.user.id, 'challenge', challengeId, receiverId);
+//       }
+
+//       res.status(201).json(newComment);
+//     } catch (error) {
+//       console.error('Error in addComment:', error);
+//       res.status(500).json({ error: 'Failed to create comment', details: error.message });
+//     }
+//   }
+// ];
+
+
+// --------- Add Comment / Submission / Reply ---------
 const addComment = [
   writeLimiter,
   upload.single('media'), // optional file
@@ -325,10 +397,7 @@ const addComment = [
         }
         receiverId = parent.userId;
       } else {
-        // Submissions must have media (image/video)
-        if (!file && !req.body.mediaUrl) {
-          return res.status(400).json({ error: 'Submissions must have media' });
-        }
+        // For top-level comment, just validate challenge exists
         const challenge = await getChallengeById(challengeId);
         if (!challenge) return res.status(400).json({ error: 'Challenge not found' });
         receiverId = challenge.creatorId;
@@ -347,6 +416,11 @@ const addComment = [
         mediaUrl = `${uploadResponse.url}|${uploadResponse.fileId}`;
       } else if (req.body.mediaUrl) {
         mediaUrl = req.body.mediaUrl;
+      }
+
+      // Prevent empty comment (must have text or media)
+      if (!cleanBody.text && !mediaUrl) {
+        return res.status(400).json({ error: 'Comment must include text or media' });
       }
 
       const data = {
@@ -372,6 +446,7 @@ const addComment = [
     }
   }
 ];
+
 
 // --------- Update Comment ---------
 const updateComment = [
