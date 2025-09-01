@@ -52,9 +52,8 @@ const removeBookmark = async (req, res) => {
 // Get user's bookmarks
 const listBookmarks = async (req, res) => {
   try {
-    const bookmarks = await getUserBookmarks("68a2ec5300050ad5dd84");
-
-    console.log("bookmarks",bookmarks)
+    const bookmarks = await getUserBookmarks(req.user.id); // Use req.user.id instead of hardcoded ID
+    console.log("bookmarks", bookmarks);
     // Optionally populate with challenge data
     const populated = await Promise.all(bookmarks.map(async (b) => ({
       ...b,
