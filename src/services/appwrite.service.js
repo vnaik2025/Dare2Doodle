@@ -9,6 +9,7 @@ const BOOKMARKS_COLLECTION_ID = process.env.APPWRITE_BOOKMARKS_COLLECTION_ID;
 const NOTIFICATIONS_COLLECTION_ID =
   process.env.APPWRITE_NOTIFICATIONS_COLLECTION_ID;
 const REPORTS_COLLECTION_ID = process.env.APPWRITE_REPORTS_COLLECTION_ID;
+const FOLLOW_COLLECTION_ID = process.env.APPWRITE_FOLLOWS_COLLECTION_ID;
 const CHALLENGE_IMAGES_BUCKET_ID =
   process.env.APPWRITE_CHALLENGE_IMAGES_BUCKET_ID;
 
@@ -432,12 +433,146 @@ const getUserProfileDetails = async (userId) => {
   }
 };
 
+
+// services/appwrite.service.js
+const updateUserProfile = async (userId, data) => {
+  try {
+    // Only allow updating username and bio
+    const updateData = {
+      username: data.username,
+      bio: data.bio,
+    };
+    return await databases.updateDocument(
+      DATABASE_ID,
+      USERS_COLLECTION_ID,
+      userId,
+      updateData
+    );
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    throw error;
+  }
+};
+
+
+
+const createFollow = async ({ followerId, followingId }) => {
+  return await databases.createDocument(
+    DATABASE_ID,
+    process.env.APPWRITE_FOLLOWS_COLLECTION_ID,
+    ID.unique(),
+    { followerId, followingId }
+  );
+};
+
+const deleteFollow = async (followerId, followingId) => {
+  const { documents } = await databases.listDocuments(DATABASE_ID, process.env.APPWRITE_FOLLOWS_COLLECTION_ID, [
+    Query.equal("followerId", followerId),
+    Query.equal("followingId", followingId),
+  ]);
+  if (documents[0]) {
+    await databases.deleteDocument(DATABASE_ID, process.env.APPWRITE_FOLLOWS_COLLECTION_ID, documents[0].$id);
+  }
+};
+
+// appwrite.service.js (fix attribute names)
+async function getFollowers(userId) {
+  return databases.listDocuments(DATABASE_ID, process.env.APPWRITE_FOLLOWS_COLLECTION_ID, [
+    Query.equal("followingId", userId), // must match schema
+  ]).then(res => res.documents);
+}
+
+async function getFollowing(userId) {
+  return databases.listDocuments(DATABASE_ID, process.env.APPWRITE_FOLLOWS_COLLECTION_ID, [
+    Query.equal("followerId", userId), // must match schema
+  ]).then(res => res.documents);
+}
+
+
+const isFollowing = async (followerId, followingId) => {
+  const { documents } = await databases.listDocuments(DATABASE_ID, process.env.APPWRITE_FOLLOWS_COLLECTION_ID, [
+    Query.equal("followerId", followerId),
+    Query.equal("followingId", followingId),
+  ]);
+  return !!documents[0];
+};
+
+//
+// FOLLOW REQUESTS
+//
+const createFollowRequest = async ({ requesterId, targetId }) => {
+  return await databases.createDocument(
+    DATABASE_ID,
+    process.env.APPWRITE_FOLLOW_REQUESTS_COLLECTION_ID,
+    ID.unique(),
+    { requesterId, targetId, status: "pending", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }
+  );
+};
+
+const updateFollowRequestStatus = async (requestId, status) => {
+  return await databases.updateDocument(
+    DATABASE_ID,
+    process.env.APPWRITE_FOLLOW_REQUESTS_COLLECTION_ID,
+    requestId,
+    { status, updatedAt: new Date().toISOString() }
+  );
+};
+
+const getPendingFollowRequest = async (requesterId, targetId) => {
+  const { documents } = await databases.listDocuments(DATABASE_ID, process.env.APPWRITE_FOLLOW_REQUESTS_COLLECTION_ID, [
+    Query.equal("requesterId", requesterId),
+    Query.equal("targetId", targetId),
+    Query.equal("status", "pending"),
+  ]);
+  return documents[0] || null;
+};
+
+const getIncomingFollowRequests = async (userId) => {
+  const { documents } = await databases.listDocuments(DATABASE_ID, process.env.APPWRITE_FOLLOW_REQUESTS_COLLECTION_ID, [
+    Query.equal("targetId", userId),
+    Query.equal("status", "pending"),
+  ]);
+  return documents;
+};
+
+//
+// BLOCKS
+//
+const createBlock = async ({ blockerId, blockedId }) => {
+  return await databases.createDocument(
+    DATABASE_ID,
+    process.env.APPWRITE_BLOCKS_COLLECTION_ID,
+    ID.unique(),
+    { blockerId, blockedId, createdAt: new Date().toISOString() }
+  );
+};
+
+const isBlocked = async (blockerId, blockedId) => {
+  const { documents } = await databases.listDocuments(DATABASE_ID, process.env.APPWRITE_BLOCKS_COLLECTION_ID, [
+    Query.equal("blockerId", blockerId),
+    Query.equal("blockedId", blockedId),
+  ]);
+  return !!documents[0];
+};
+
+const deleteBlock = async (blockerId, blockedId) => {
+  const { documents } = await databases.listDocuments(DATABASE_ID, process.env.APPWRITE_BLOCKS_COLLECTION_ID, [
+    Query.equal("blockerId", blockerId),
+    Query.equal("blockedId", blockedId),
+  ]);
+  if (documents[0]) {
+    await databases.deleteDocument(DATABASE_ID, process.env.APPWRITE_BLOCKS_COLLECTION_ID, documents[0].$id);
+  }
+};
+
+
 module.exports = {
   // Users
   createUser,
   getUserByEmail,
   getUserById,
   updateUser,
+  updateUserProfile,
   // Challenges
   getChallenges,
   getChallengeById,
@@ -476,4 +611,17 @@ module.exports = {
   getUserLikedPosts,
   getUserCommentedPosts,
   getUserProfileDetails,
+
+  createFollow,
+  deleteFollow,
+  getFollowers,
+  getFollowing,
+  isFollowing,
+  createFollowRequest,
+  updateFollowRequestStatus,
+  getPendingFollowRequest,
+  getIncomingFollowRequests,
+  createBlock,
+  isBlocked,
+  deleteBlock,
 };
