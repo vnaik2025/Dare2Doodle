@@ -529,4 +529,28 @@ const removeComment = async (req, res) => {
   }
 };
 
-module.exports = { listComments, addComment, removeComment, updateComment, createSchema };
+
+// --------- Get Single Comment by ID ---------
+const getSingleComment = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!id || typeof id !== "string" || id.trim() === "") {
+      return res.status(400).json({ error: "Invalid commentId" });
+    }
+
+    const comment = await getCommentById(id);
+    if (!comment) {
+      return res.status(404).json({ error: "Comment not found" });
+    }
+
+    res.json(comment);
+  } catch (error) {
+    console.error("Error in getSingleComment:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch comment", details: error.message });
+  }
+};
+
+
+module.exports = { listComments, getSingleComment,addComment, removeComment, updateComment, createSchema };

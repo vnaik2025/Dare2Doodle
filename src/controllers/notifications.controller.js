@@ -1,7 +1,8 @@
 const {
   getNotifications,
   updateNotification,
-  createNotification
+  createNotification,
+  cleanupOldNotifications,
 } = require('../services/appwrite.service');
 
 
@@ -12,6 +13,8 @@ const listNotifications = async (req, res) => {
   try {
     const notifications = await getNotifications(req.user.id);
     res.json(notifications);
+
+        cleanupOldNotifications(req.user.id).catch(console.error);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch notifications' });
   }
