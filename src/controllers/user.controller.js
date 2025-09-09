@@ -1736,6 +1736,7 @@ const {
   isBlocked,
   setAccountPrivacy,
   listPendingRequestsForTarget,
+  getBlockedUsers,
   deleteFollowRequest,
 } = require("../services/appwrite.service");
 
@@ -1897,7 +1898,14 @@ const togglePrivacyController = async (req, res) => {
     const wasPrivate = !!user.private;
     const updated = await setAccountPrivacy(userId, makePrivate);
 
-    // If switching from private -> public and caller wants to auto-accept all pending requests
+    // Log the transition for debugging
+    console.log(
+      `User ${userId} toggling privacy from ${wasPrivate ? "private" : "public"} to ${
+        makePrivate ? "private" : "public"
+      }. Existing followers will be preserved.`
+    );
+
+    // If switching from private -> public and auto-accepting pending requests
     if (wasPrivate && makePrivate === false && autoAcceptPending === true) {
       const pendings = await listPendingRequestsForTarget(userId);
       for (const reqDoc of pendings) {
@@ -1917,6 +1925,13 @@ const togglePrivacyController = async (req, res) => {
           createdAt: new Date().toISOString(),
         });
       }
+    }
+
+    // If switching from public -> private, no action needed as existing followers remain
+    if (!wasPrivate && makePrivate) {
+      console.log(
+        `User ${userId} switched to private. Existing followers unaffected; new followers will require requests.`
+      );
     }
 
     res.status(200).json({
@@ -2293,6 +2308,20 @@ const getFollowStatusController = async (req, res) => {
   }
 };
 
+const getBlockedUsersController = async (req, res) => {
+  console.log("get blocked user is called");
+  try {
+    const userId = req.user.id;
+    const blockedUsers = await getBlockedUsers(userId);
+    res.status(200).json(blockedUsers);
+  } catch (error) {
+    console.error("getBlockedUsersController error:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch blocked users", details: error.message });
+  }
+};
+
 module.exports = {
   getSubmissions,
   getLikedPosts,
@@ -2317,4 +2346,5 @@ module.exports = {
   logoutController,
   getFollowStatusController,
   retractFollowRequest,
+  getBlockedUsersController,
 };

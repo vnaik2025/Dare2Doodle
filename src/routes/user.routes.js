@@ -162,10 +162,13 @@ const {
   rejectFollow,
   removeFollower,
   retractFollowRequest,
+  getBlockedUsersController,
 } = require('../controllers/user.controller');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
+
+router.get("/blocked", authMiddleware, getBlockedUsersController);
 
 // Posts
 router.get('/submissions', authMiddleware, getSubmissions);
@@ -203,5 +206,6 @@ router.post('/unblock', authMiddleware, unblockUserController);
 // Auth
 router.post('/login', loginController);
 router.post('/logout', authMiddleware, logoutController);
+
 
 module.exports = router;

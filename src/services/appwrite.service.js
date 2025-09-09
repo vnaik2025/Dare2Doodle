@@ -2090,11 +2090,27 @@ const updateFollowDoc = async (followId, data) => {
   );
 };
 
+const getBlockedUsers = async (userId) => {
+  const { documents } = await databases.listDocuments(
+    DATABASE_ID,
+    BLOCKS_COLLECTION_ID,
+    [Query.equal("blockerId", userId)]
+  );
+  return Promise.all(
+    documents.map(async (block) => {
+      const user = await getUserById(block.blockedId);
+      return { blockDocId: block.$id, user };
+    })
+  );
+};
+
+
 module.exports = {
   // Users
   updateFollowDoc,
   createUser,
   getUserByEmail,
+  getBlockedUsers,
   getUserById,
   updateUser,
   setAccountPrivacy,

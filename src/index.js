@@ -141,7 +141,7 @@ app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 // CORS
 // - In dev: allow localhost:4200 by default
 // - In prod: read from CORS_ORIGIN (single origin) or CORS_ORIGINS (comma-separated)
-const devDefaultOrigin = 'http://localhost:5173';
+const devDefaultOrigin = 'http://localhost:5173'||'http://192.168.1.8:5173/';
 const envOrigins =
   (process.env.CORS_ORIGINS && process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)) ||
   (process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []);
