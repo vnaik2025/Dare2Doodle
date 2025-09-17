@@ -34,31 +34,42 @@ app.use(helmet());
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// -------------------- CORS --------------------
+// -------------------- CORS SETUP (robust/reflection) --------------------
+// dev safe defaults (include your dev host)
 const devOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3000',
 ];
 
+// env override (comma-separated)
 const envOrigins =
   (process.env.CORS_ORIGINS &&
-    process.env.CORS_ORIGINS.split(',').map(s => s.trim())) ||
+    process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)) ||
   [];
 
-// if env set, use it; else fall back to dev origins
+// If envOrigins provided, use that list. If not, fall back to devOrigins.
+// NOTE: In production you should set CORS_ORIGINS explicitly.
 let allowedOrigins = envOrigins.length > 0 ? envOrigins : devOrigins;
 
+console.log('[CORS] Allowed origins list:', allowedOrigins);
+
+// Use standard cors middleware (keeps things tidy)
 const corsOptions = {
   origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // allow curl/postman
+    // Allow non-browser tools (no origin)
+    if (!origin) return callback(null, true);
+
+    // Allow explicit whitelist
     if (allowedOrigins.includes(origin)) return callback(null, true);
 
-    // fallback: reflect origin only in dev
-    if (NODE_ENV !== 'production') {
+    // If no env list was set (we are using devOrigins fallback), reflect origin
+    if (envOrigins.length === 0) {
+      console.warn('[CORS] No CORS_ORIGINS env configured, reflecting request origin (dev fallback).');
       return callback(null, true);
     }
 
+    // Otherwise block
     return callback(new Error(`CORS policy: origin ${origin} not allowed`));
   },
   credentials: true,
@@ -67,9 +78,37 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 
-// Apply CORS globally
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // handle preflight
+
+// -------------------- Manual guard to ensure headers always appear (defensive) --------------------
+// This sets Access-Control-Allow-* on every response so serverless wrappers / proxies don't drop them.
+// It reflects origin if allowed (or if no envOrigins defined we allow reflection).
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    const originAllowed =
+      allowedOrigins.includes(origin) || envOrigins.length === 0; // allow reflection if no envOrigins
+    if (originAllowed) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+  } else {
+    // no origin (curl/postman) — do nothing special
+  }
+
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Requested-With, Accept'
+  );
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+
+  // Short-circuit preflight requests here to ensure OPTIONS always gets the headers
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 // -------------------- Rate limiting --------------------
 app.use(
@@ -112,6 +151,7 @@ app.use((req, res) => {
 
 // -------------------- Error handler --------------------
 app.use((err, req, res, next) => {
+  // handle CORS callback errors
   if (err && err.message && err.message.startsWith('CORS policy')) {
     return res.status(403).json({ error: err.message });
   }
