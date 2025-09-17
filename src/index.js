@@ -6,7 +6,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const serverless = require('serverless-http'); // keep if you use serverless wrapper on Vercel
+const serverless = require('serverless-http');
 
 // route + middleware imports
 const errorHandler = require('./middleware/errorHandler');
@@ -23,18 +23,16 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// trust proxy in prod (needed on Vercel)
 if (NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// security + logging + body parser
 app.disable('x-powered-by');
 app.use(helmet());
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// -------------------- CORS configuration --------------------
+// -------------------- CORS --------------------
 const devOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
@@ -43,21 +41,25 @@ const devOrigins = [
 
 const envOrigins =
   (process.env.CORS_ORIGINS &&
-    process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)) ||
+    process.env.CORS_ORIGINS.split(',').map(s => s.trim())) ||
   [];
 
-// prefer explicit env var in production, otherwise fall back to devOrigins
-let allowedOrigins = envOrigins.length > 0 ? envOrigins : devOrigins;
+// Always include dev + env origins
+let allowedOrigins = [...devOrigins, ...envOrigins];
+
+// Fallback: if empty, allow all (not recommended for prod)
+if (allowedOrigins.length === 0) {
+  console.warn('[CORS] No origins configured. Allowing all origins.');
+}
 
 const corsOptions = {
   origin: (origin, callback) => {
-    // allow requests made by non-browser clients (curl/postman) — they send no Origin
-    if (!origin) return callback(null, true);
+    if (!origin) return callback(null, true); // curl/postman
 
     if (allowedOrigins.includes(origin)) return callback(null, true);
 
-    // allow all in non-production for ease of local dev
-    if (NODE_ENV !== 'production') return callback(null, true);
+    // Allow all if not configured
+    if (allowedOrigins.length === 0) return callback(null, true);
 
     return callback(new Error(`CORS policy: origin ${origin} not allowed`));
   },
@@ -67,36 +69,14 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 
-// Apply CORS middleware globally
 app.use(cors(corsOptions));
-
-// Explicit fallback middleware that sets CORS headers (helps serverless wrappers)
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && (allowedOrigins.includes(origin) || NODE_ENV !== 'production')) {
-    // reflect the origin
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    // make sure proxies/clients know response varies by origin
-    res.setHeader('Vary', 'Origin');
-  }
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-
-  // Immediately answer preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
+app.options('*', cors(corsOptions)); // handle preflight everywhere
 
 // -------------------- Rate limiting --------------------
 app.use(
   rateLimit({
-    windowMs: process.env.RATE_LIMIT_WINDOW_MS
-      ? parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10)
-      : 15 * 60 * 1000,
-    max: process.env.RATE_LIMIT_MAX ? parseInt(process.env.RATE_LIMIT_MAX, 10) : 100,
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests, please try again later.' },
@@ -105,7 +85,7 @@ app.use(
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.AUTH_RATE_LIMIT_MAX ? parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10) : 20,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many auth requests, please try again later.' },
@@ -133,11 +113,9 @@ app.use((req, res) => {
 
 // -------------------- Error handler --------------------
 app.use((err, req, res, next) => {
-  // If CORS callback raised an error, reply 403 with message
   if (err && err.message && err.message.startsWith('CORS policy')) {
     return res.status(403).json({ error: err.message });
   }
-
   if (NODE_ENV !== 'production') {
     return errorHandler(err, req, res, next);
   }
@@ -147,8 +125,7 @@ app.use((err, req, res, next) => {
 
 // -------------------- Export / Listen --------------------
 if (process.env.VERCEL || NODE_ENV === 'production') {
-  // On Vercel you can export the serverless handler. Keep a log for debugging.
-  console.log(`[server] Running in serverless/production mode. Allowed origins: ${allowedOrigins.join(', ')}`);
+  console.log(`[server] Running in serverless mode. Allowed origins: ${allowedOrigins.join(', ')}`);
   module.exports = serverless(app);
 } else {
   app.listen(PORT, () => {
