@@ -1,4 +1,3 @@
-// src/index.js
 require('dotenv').config();
 
 const express = require('express');
@@ -65,7 +64,7 @@ const corsOptions = {
 
     // If we have configured allowedOrigins and it's non-empty, check against it
     if (Array.isArray(allowedOrigins) && allowedOrigins.length > 0) {
-      if (allowedOrigins.includes(origin)) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, origin);
 
       // Not in whitelist
       return callback(new Error(`CORS policy: origin ${origin} not allowed`), false);
@@ -76,7 +75,7 @@ const corsOptions = {
     console.warn(
       '[CORS] No allowed origins configured (CORS_ORIGINS empty). Allowing all origins by reflecting request origin.'
     );
-    return callback(null, true);
+    return callback(null, origin);
   },
   credentials: true,
   optionsSuccessStatus: 200,
