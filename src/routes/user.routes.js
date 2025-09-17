@@ -136,7 +136,6 @@
 
 // module.exports = router;
 
-
 const express = require('express');
 const {
   getSubmissions,
@@ -163,6 +162,7 @@ const {
   removeFollower,
   retractFollowRequest,
   getBlockedUsersController,
+  getUserChallengesController,
 } = require('../controllers/user.controller');
 const authMiddleware = require('../middleware/authMiddleware');
 
@@ -174,6 +174,7 @@ router.get("/blocked", authMiddleware, getBlockedUsersController);
 router.get('/submissions', authMiddleware, getSubmissions);
 router.get('/liked-posts', authMiddleware, getLikedPosts);
 router.get('/commented-posts', authMiddleware, getCommentedPosts);
+router.get('/:userId/challenges', authMiddleware, getUserChallengesController);
 
 // Profile
 router.get('/profile', authMiddleware, getProfileDetails);
@@ -206,6 +207,5 @@ router.post('/unblock', authMiddleware, unblockUserController);
 // Auth
 router.post('/login', loginController);
 router.post('/logout', authMiddleware, logoutController);
-
 
 module.exports = router;
