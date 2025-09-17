@@ -93,7 +93,10 @@
 
 
 
-// src/index.js
+
+
+
+// index.js
 require('dotenv').config();
 
 const express = require('express');
@@ -102,51 +105,59 @@ const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
 
+// Middlewares / routes you already have
 const errorHandler = require('./middleware/errorHandler');
-
-// IMPORTANT: require routes individually in try/catch so we can identify a bad route during startup.
-const routesToLoad = [
-  { mount: '/api/auth', path: './routes/auth.routes', authLimiter: true },
-  { mount: '/api/challenges', path: './routes/challenge.routes' },
-  { mount: '/api/comments', path: './routes/comment.routes' },
-  { mount: '/api/likes', path: './routes/likes.routes' },
-  { mount: '/api/bookmarks', path: './routes/bookmarks.routes' },
-  { mount: '/api/notifications', path: './routes/notifications.routes' },
-  { mount: '/api/reports', path: './routes/reports.routes' },
-  { mount: '/api/users', path: './routes/user.routes' },
-];
+const authRoutes = require('./routes/auth.routes');
+const challengeRoutes = require('./routes/challenge.routes');
+const commentRoutes = require('./routes/comment.routes');
+const likesRoutes = require('./routes/likes.routes');
+const bookmarksRoutes = require('./routes/bookmarks.routes');
+const notificationsRoutes = require('./routes/notifications.routes');
+const reportsRoutes = require('./routes/reports.routes');
+const userRoutes= require('./routes/user.routes')
 
 const app = express();
-
-const NODE_ENV = process.env.NODE_ENV || 'development';
 const PORT = process.env.PORT || 3000;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // ───────────────────────────────────────────────────────────────────────────────
-// app configuration
+// Trust proxy (needed behind load balancers / reverse proxies in prod)
 if (NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
+
+// Hide X-Powered-By
 app.disable('x-powered-by');
+
+// Security headers
 app.use(helmet());
+
+// Body parser with size limit
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
+
+// Logging
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// CORS config: in dev allow localhost:5173
+// CORS
+// - In dev: allow localhost:4200 by default
+// - In prod: read from CORS_ORIGIN (single origin) or CORS_ORIGINS (comma-separated)
 const devDefaultOrigin = 'http://localhost:5173';
 const envOrigins =
   (process.env.CORS_ORIGINS && process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)) ||
   (process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []);
+
 const allowedOrigins = NODE_ENV === 'production' ? envOrigins : [devDefaultOrigin, ...envOrigins];
 
 app.use(
   cors({
     origin: (origin, callback) => {
-      if (!origin) return callback(null, true); // allow non-browser clients
+      // Allow non-browser clients with no Origin header (e.g., curl/Postman)
+      if (!origin) return callback(null, true);
       if (allowedOrigins.length === 0) return callback(null, true); // fallback (not recommended for prod)
       if (allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error('Not allowed by CORS'));
     },
-    credentials: false,
+    credentials: false, // set to true only if you move JWT to cookies
     optionsSuccessStatus: 204,
     allowedHeaders: ['Content-Type', 'Authorization'],
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
@@ -155,6 +166,7 @@ app.use(
 );
 
 // Rate limiting
+// Global limiter
 app.use(
   rateLimit({
     windowMs: process.env.RATE_LIMIT_WINDOW_MS ? parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) : 15 * 60 * 1000,
@@ -165,61 +177,48 @@ app.use(
   })
 );
 
-// Tighter auth limiter (we'll apply it when mounting auth route)
+// Tighter auth limiter for login/signup endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.AUTH_RATE_LIMIT_MAX ? parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10) : 20,
+  max: process.env.AUTH_RATE_LIMIT_MAX ? parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10) : 20, // e.g., 20 tries / 15m
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many auth requests, please try again later.' },
 });
 
-// Health check
+// Health check (for uptime monitors / load balancers)
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', env: NODE_ENV, time: new Date().toISOString() });
 });
 
 // ───────────────────────────────────────────────────────────────────────────────
-// Load and mount routes safely so we can detect malformed route patterns
-routesToLoad.forEach(routeInfo => {
-  try {
-    // require the route module
-    const router = require(routeInfo.path);
-    if (!router || typeof router !== 'function') {
-      console.warn(`[WARN] Route file ${routeInfo.path} did not export an Express router function/object.`);
-    }
-
-    // mount with optional auth limiter
-    if (routeInfo.authLimiter) {
-      app.use(routeInfo.mount, authLimiter, router);
-    } else {
-      app.use(routeInfo.mount, router);
-    }
-    console.log(`[OK] Mounted ${routeInfo.path} -> ${routeInfo.mount}`);
-  } catch (err) {
-    // If path-to-regexp throws, it will be caught here — make error message explicit and rethrow
-    console.error(`\n[ERROR] Failed to load route file ${routeInfo.path} while mounting ${routeInfo.mount}`);
-    console.error('Error message:', err && err.message);
-    console.error('Full error (stack):', err && err.stack);
-    // Re-throw so the serverless build fails (so you fix the route). Vercel shows this in build logs.
-    throw err;
-  }
-});
+// Routes
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api/challenges', challengeRoutes);
+app.use('/api/comments', commentRoutes);
+app.use('/api/likes', likesRoutes);
+app.use('/api/bookmarks', bookmarksRoutes);
+app.use('/api/notifications', notificationsRoutes);
+app.use('/api/reports', reportsRoutes);
+app.use('/api/users',userRoutes );
 
 // 404 handler (after routes)
-app.use((req, res) => {
+app.use((req, res, next) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// Central error handler
+// Central error handler (make sure it doesn’t leak stack traces in prod)
 app.use((err, req, res, next) => {
   if (NODE_ENV !== 'production') {
-    return errorHandler(err, req, res, next); // your dev handler
+    // delegate to your existing errorHandler in dev so you can debug
+    return errorHandler(err, req, res, next);
   }
+  // minimal error in prod
   const status = err.status || 500;
   return res.status(status).json({ error: err.message || 'Internal Server Error' });
 });
 
-// IMPORTANT for Vercel: do NOT call app.listen() here.
-// Export the Express app as the module export so @vercel/node can use it.
-module.exports = app;
+// ───────────────────────────────────────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
