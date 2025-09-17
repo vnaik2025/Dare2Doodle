@@ -6,7 +6,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const serverless = require('serverless-http'); // wrap app for Vercel
+const serverless = require('serverless-http'); // keep if you use serverless wrapper on Vercel
 
 // route + middleware imports
 const errorHandler = require('./middleware/errorHandler');
@@ -28,48 +28,37 @@ if (NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// security + logging
+// security + logging + body parser
 app.disable('x-powered-by');
 app.use(helmet());
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// -------------------- CORS SETUP (robust/reflection) --------------------
-// dev safe defaults (include your dev host)
+// -------------------- CORS configuration --------------------
 const devOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3000',
 ];
 
-// env override (comma-separated)
 const envOrigins =
   (process.env.CORS_ORIGINS &&
     process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)) ||
   [];
 
-// If envOrigins provided, use that list. If not, fall back to devOrigins.
-// NOTE: In production you should set CORS_ORIGINS explicitly.
+// prefer explicit env var in production, otherwise fall back to devOrigins
 let allowedOrigins = envOrigins.length > 0 ? envOrigins : devOrigins;
 
-console.log('[CORS] Allowed origins list:', allowedOrigins);
-
-// Use standard cors middleware (keeps things tidy)
 const corsOptions = {
   origin: (origin, callback) => {
-    // Allow non-browser tools (no origin)
+    // allow requests made by non-browser clients (curl/postman) — they send no Origin
     if (!origin) return callback(null, true);
 
-    // Allow explicit whitelist
     if (allowedOrigins.includes(origin)) return callback(null, true);
 
-    // If no env list was set (we are using devOrigins fallback), reflect origin
-    if (envOrigins.length === 0) {
-      console.warn('[CORS] No CORS_ORIGINS env configured, reflecting request origin (dev fallback).');
-      return callback(null, true);
-    }
+    // allow all in non-production for ease of local dev
+    if (NODE_ENV !== 'production') return callback(null, true);
 
-    // Otherwise block
     return callback(new Error(`CORS policy: origin ${origin} not allowed`));
   },
   credentials: true,
@@ -78,32 +67,23 @@ const corsOptions = {
   optionsSuccessStatus: 200,
 };
 
+// Apply CORS middleware globally
 app.use(cors(corsOptions));
 
-// -------------------- Manual guard to ensure headers always appear (defensive) --------------------
-// This sets Access-Control-Allow-* on every response so serverless wrappers / proxies don't drop them.
-// It reflects origin if allowed (or if no envOrigins defined we allow reflection).
+// Explicit fallback middleware that sets CORS headers (helps serverless wrappers)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin) {
-    const originAllowed =
-      allowedOrigins.includes(origin) || envOrigins.length === 0; // allow reflection if no envOrigins
-    if (originAllowed) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-    }
-  } else {
-    // no origin (curl/postman) — do nothing special
+  if (origin && (allowedOrigins.includes(origin) || NODE_ENV !== 'production')) {
+    // reflect the origin
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    // make sure proxies/clients know response varies by origin
+    res.setHeader('Vary', 'Origin');
   }
-
   res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Requested-With, Accept'
-  );
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
 
-  // Short-circuit preflight requests here to ensure OPTIONS always gets the headers
+  // Immediately answer preflight requests
   if (req.method === 'OPTIONS') {
     return res.sendStatus(200);
   }
@@ -113,8 +93,10 @@ app.use((req, res, next) => {
 // -------------------- Rate limiting --------------------
 app.use(
   rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
+    windowMs: process.env.RATE_LIMIT_WINDOW_MS
+      ? parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10)
+      : 15 * 60 * 1000,
+    max: process.env.RATE_LIMIT_MAX ? parseInt(process.env.RATE_LIMIT_MAX, 10) : 100,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests, please try again later.' },
@@ -123,7 +105,7 @@ app.use(
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: process.env.AUTH_RATE_LIMIT_MAX ? parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10) : 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many auth requests, please try again later.' },
@@ -151,10 +133,11 @@ app.use((req, res) => {
 
 // -------------------- Error handler --------------------
 app.use((err, req, res, next) => {
-  // handle CORS callback errors
+  // If CORS callback raised an error, reply 403 with message
   if (err && err.message && err.message.startsWith('CORS policy')) {
     return res.status(403).json({ error: err.message });
   }
+
   if (NODE_ENV !== 'production') {
     return errorHandler(err, req, res, next);
   }
@@ -164,7 +147,8 @@ app.use((err, req, res, next) => {
 
 // -------------------- Export / Listen --------------------
 if (process.env.VERCEL || NODE_ENV === 'production') {
-  console.log(`[server] Running in serverless mode. Allowed origins: ${allowedOrigins.join(', ')}`);
+  // On Vercel you can export the serverless handler. Keep a log for debugging.
+  console.log(`[server] Running in serverless/production mode. Allowed origins: ${allowedOrigins.join(', ')}`);
   module.exports = serverless(app);
 } else {
   app.listen(PORT, () => {
