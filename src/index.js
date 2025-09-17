@@ -1,12 +1,13 @@
-// src/index.js
+// index.js
+require('dotenv').config();
+
 const express = require('express');
 const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const serverless = require('serverless-http');
 
-// route + middleware imports
+// Middlewares / routes you already have
 const errorHandler = require('./middleware/errorHandler');
 const authRoutes = require('./routes/auth.routes');
 const challengeRoutes = require('./routes/challenge.routes');
@@ -18,73 +19,91 @@ const reportsRoutes = require('./routes/reports.routes');
 const userRoutes = require('./routes/user.routes');
 
 const app = express();
-const PORT = 3000; // fixed
+const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
+// ───────────────────────────────────────────────────────────────────────────────
+// Trust proxy (needed behind load balancers / reverse proxies in prod)
 if (NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
+// Hide X-Powered-By
 app.disable('x-powered-by');
+
+// Security headers
 app.use(helmet());
-app.use(express.json({ limit: '1mb' }));
+
+// Body parser with size limit
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
+
+// Logging
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// -------------------- CORS --------------------
-// hardcoded origins (no envs)
-const allowedOrigins = [
+// CORS setup
+const devDefaultOrigins = [
   'http://localhost:5173',
-  'http://127.0.0.1:5173',
-  'http://localhost:3000',
-  'https://dare2-doodle.vercel.app', // ✅ deployed frontend
+  'http://192.168.1.8:5173',
+  'http://localhost:4200',
 ];
 
-const corsOptions = {
-  origin: (origin, callback) => {
-    if (!origin) return callback(null, true); // curl/postman
+const envOrigins =
+  (process.env.CORS_ORIGINS &&
+    process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)) ||
+  (process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []);
 
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
+const allowedOrigins =
+  NODE_ENV === 'production' ? envOrigins : [...devDefaultOrigins, ...envOrigins];
 
-    return callback(new Error(`CORS policy: origin ${origin} not allowed`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200,
-};
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow non-browser clients with no Origin header (e.g., curl/Postman)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
+    },
+    credentials: true, // allow cookies if you ever switch JWT to cookies
+    optionsSuccessStatus: 200,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+    maxAge: 86400,
+  })
+);
 
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // handle preflight everywhere
-
-// -------------------- Rate limiting --------------------
+// Rate limiting
 app.use(
   rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
+    windowMs: process.env.RATE_LIMIT_WINDOW_MS
+      ? parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10)
+      : 15 * 60 * 1000,
+    max: process.env.RATE_LIMIT_MAX
+      ? parseInt(process.env.RATE_LIMIT_MAX, 10)
+      : 100,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests, please try again later.' },
   })
 );
 
+// Tighter auth limiter for login/signup endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: process.env.AUTH_RATE_LIMIT_MAX
+    ? parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10)
+    : 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many auth requests, please try again later.' },
 });
 
-// -------------------- Health check --------------------
+// Health check (for uptime monitors / load balancers)
 app.get('/api/health', (req, res) => {
-  res
-    .status(200)
-    .json({ status: 'ok', env: NODE_ENV, time: new Date().toISOString() });
+  res.status(200).json({ status: 'ok', env: NODE_ENV, time: new Date().toISOString() });
 });
 
-// -------------------- Routes --------------------
+// ───────────────────────────────────────────────────────────────────────────────
+// Routes
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/comments', commentRoutes);
@@ -94,32 +113,22 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/users', userRoutes);
 
-// -------------------- 404 --------------------
-app.use((req, res) => {
+// 404 handler (after routes)
+app.use((req, res, next) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// -------------------- Error handler --------------------
+// Central error handler
 app.use((err, req, res, next) => {
-  if (err && err.message && err.message.startsWith('CORS policy')) {
-    return res.status(403).json({ error: err.message });
-  }
   if (NODE_ENV !== 'production') {
     return errorHandler(err, req, res, next);
   }
   const status = err.status || 500;
-  return res
-    .status(status)
-    .json({ error: err.message || 'Internal Server Error' });
+  return res.status(status).json({ error: err.message || 'Internal Server Error' });
 });
 
-// -------------------- Export / Listen --------------------
-if (process.env.VERCEL || NODE_ENV === 'production') {
-  console.log(`[server] Running in serverless mode. Allowed origins: ${allowedOrigins.join(', ')}`);
-  module.exports = serverless(app);
-} else {
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-  });
-}
+// ───────────────────────────────────────────────────────────────────────────────
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+});
