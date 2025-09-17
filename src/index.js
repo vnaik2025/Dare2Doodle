@@ -1,4 +1,4 @@
-// index.js
+// src/index.js
 require('dotenv').config();
 
 const express = require('express');
@@ -6,8 +6,9 @@ const helmet = require('helmet');
 const cors = require('cors');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const serverless = require('serverless-http'); // wrap app for Vercel
 
-// Middlewares / routes you already have
+// route + middleware imports
 const errorHandler = require('./middleware/errorHandler');
 const authRoutes = require('./routes/auth.routes');
 const challengeRoutes = require('./routes/challenge.routes');
@@ -22,88 +23,79 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Trust proxy (needed behind load balancers / reverse proxies in prod)
+// trust proxy in prod (needed on Vercel)
 if (NODE_ENV === 'production') {
   app.set('trust proxy', 1);
 }
 
-// Hide X-Powered-By
+// security + logging
 app.disable('x-powered-by');
-
-// Security headers
 app.use(helmet());
-
-// Body parser with size limit
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
-
-// Logging
 app.use(morgan(NODE_ENV === 'production' ? 'combined' : 'dev'));
 
-// CORS setup
-const devDefaultOrigins = [
+// -------------------- CORS --------------------
+const devOrigins = [
   'http://localhost:5173',
-  'http://192.168.1.8:5173',
-  'http://localhost:4200',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
 ];
 
 const envOrigins =
   (process.env.CORS_ORIGINS &&
-    process.env.CORS_ORIGINS.split(',').map(s => s.trim()).filter(Boolean)) ||
-  (process.env.CORS_ORIGIN ? [process.env.CORS_ORIGIN] : []);
+    process.env.CORS_ORIGINS.split(',').map(s => s.trim())) ||
+  [];
 
-const allowedOrigins =
-  NODE_ENV === 'production' ? envOrigins : [...devDefaultOrigins, ...envOrigins];
+// if env set, use it; else fall back to dev origins
+let allowedOrigins = envOrigins.length > 0 ? envOrigins : devOrigins;
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow non-browser clients with no Origin header (e.g., curl/Postman)
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error(`Not allowed by CORS: ${origin}`));
-    },
-    credentials: true, // allow cookies if you ever switch JWT to cookies
-    optionsSuccessStatus: 200,
-    allowedHeaders: ['Content-Type', 'Authorization'],
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    maxAge: 86400,
-  })
-);
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true); // allow curl/postman
+    if (allowedOrigins.includes(origin)) return callback(null, true);
 
-// Rate limiting
+    // fallback: reflect origin only in dev
+    if (NODE_ENV !== 'production') {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS policy: origin ${origin} not allowed`));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200,
+};
+
+// Apply CORS globally
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // handle preflight
+
+// -------------------- Rate limiting --------------------
 app.use(
   rateLimit({
-    windowMs: process.env.RATE_LIMIT_WINDOW_MS
-      ? parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10)
-      : 15 * 60 * 1000,
-    max: process.env.RATE_LIMIT_MAX
-      ? parseInt(process.env.RATE_LIMIT_MAX, 10)
-      : 100,
+    windowMs: 15 * 60 * 1000,
+    max: 100,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many requests, please try again later.' },
   })
 );
 
-// Tighter auth limiter for login/signup endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.AUTH_RATE_LIMIT_MAX
-    ? parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10)
-    : 20,
+  max: 20,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many auth requests, please try again later.' },
 });
 
-// Health check (for uptime monitors / load balancers)
+// -------------------- Health check --------------------
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok', env: NODE_ENV, time: new Date().toISOString() });
 });
 
-// ───────────────────────────────────────────────────────────────────────────────
-// Routes
+// -------------------- Routes --------------------
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/comments', commentRoutes);
@@ -113,13 +105,16 @@ app.use('/api/notifications', notificationsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/users', userRoutes);
 
-// 404 handler (after routes)
-app.use((req, res, next) => {
+// -------------------- 404 --------------------
+app.use((req, res) => {
   res.status(404).json({ error: 'Not found' });
 });
 
-// Central error handler
+// -------------------- Error handler --------------------
 app.use((err, req, res, next) => {
+  if (err && err.message && err.message.startsWith('CORS policy')) {
+    return res.status(403).json({ error: err.message });
+  }
   if (NODE_ENV !== 'production') {
     return errorHandler(err, req, res, next);
   }
@@ -127,8 +122,13 @@ app.use((err, req, res, next) => {
   return res.status(status).json({ error: err.message || 'Internal Server Error' });
 });
 
-// ───────────────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
-});
+// -------------------- Export / Listen --------------------
+if (process.env.VERCEL || NODE_ENV === 'production') {
+  console.log(`[server] Running in serverless mode. Allowed origins: ${allowedOrigins.join(', ')}`);
+  module.exports = serverless(app);
+} else {
+  app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Allowed origins: ${allowedOrigins.join(', ')}`);
+  });
+}
