@@ -45,6 +45,7 @@ const devDefaultOrigins = [
   'http://localhost:5173',
   'http://192.168.1.8:5173',
   'http://localhost:4200',
+  'http://192.168.1.9:5173',
 ];
 
 const envOrigins =
