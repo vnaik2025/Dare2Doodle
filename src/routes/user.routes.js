@@ -136,6 +136,81 @@
 
 // module.exports = router;
 
+// const express = require('express');
+// const {
+//   getSubmissions,
+//   getLikedPosts,
+//   getCommentedPosts,
+//   getProfileDetails,
+//   getUserDetails,
+//   updateProfile,
+//   followUser,
+//   unfollowUser,
+//   handleFollowRequest,
+//   getFollowersController,
+//   blockUserController,
+//   getFollowingController,
+//   unblockUserController,
+//   loginController,
+//   togglePrivacyController,
+//   logoutController,
+//   getIncomingFollowRequestsController,
+//   getOutgoingFollowRequestsController,
+//   acceptFollow,
+//   getFollowStatusController,
+//   rejectFollow,
+//   removeFollower,
+//   retractFollowRequest,
+//   getBlockedUsersController,
+//   getUserChallengesController,
+// } = require('../controllers/user.controller');
+// const authMiddleware = require('../middleware/authMiddleware');
+
+// const router = express.Router();
+
+// router.get("/blocked", authMiddleware, getBlockedUsersController);
+
+// // Posts
+// router.get('/submissions', authMiddleware, getSubmissions);
+// router.get('/liked-posts', authMiddleware, getLikedPosts);
+// router.get('/commented-posts', authMiddleware, getCommentedPosts);
+// router.get('/:userId/challenges', authMiddleware, getUserChallengesController);
+
+// // Profile
+// router.get('/profile', authMiddleware, getProfileDetails);
+// router.put('/profile', authMiddleware, updateProfile);
+// router.put('/privacy', authMiddleware, togglePrivacyController);
+// router.get('/:userId', authMiddleware, getUserDetails);
+
+// // Follow / Unfollow
+// router.post('/follow', authMiddleware, followUser);
+// router.post('/unfollow', authMiddleware, unfollowUser);
+// router.post('/remove-follower', authMiddleware, removeFollower);
+
+// // Follow requests
+// router.post('/follow-request/handle', authMiddleware, handleFollowRequest);
+// router.post('/follow-request/accept', authMiddleware, acceptFollow);
+// router.post('/follow-request/reject', authMiddleware, rejectFollow);
+// router.post('/follow-request/retract', authMiddleware, retractFollowRequest);
+// router.get('/follow-requests/incoming', authMiddleware, getIncomingFollowRequestsController);
+// router.get('/follow-requests/outgoing', authMiddleware, getOutgoingFollowRequestsController);
+// router.get('/follow-status/:targetId', authMiddleware, getFollowStatusController);
+
+// // Followers / Following
+// router.get('/:userId/followers', authMiddleware, getFollowersController);
+// router.get('/:userId/following', authMiddleware, getFollowingController);
+
+// // Block / Unblock
+// router.post('/block', authMiddleware, blockUserController);
+// router.post('/unblock', authMiddleware, unblockUserController);
+
+// // Auth
+// router.post('/login', loginController);
+// router.post('/logout', authMiddleware, logoutController);
+
+// module.exports = router;
+
+
 const express = require('express');
 const {
   getSubmissions,
@@ -163,31 +238,25 @@ const {
   retractFollowRequest,
   getBlockedUsersController,
   getUserChallengesController,
+  getNotifications, // Import getNotifications from appwrite.service.js
 } = require('../controllers/user.controller');
 const authMiddleware = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
-router.get("/blocked", authMiddleware, getBlockedUsersController);
-
-// Posts
+// Existing routes...
+router.get('/blocked', authMiddleware, getBlockedUsersController);
 router.get('/submissions', authMiddleware, getSubmissions);
 router.get('/liked-posts', authMiddleware, getLikedPosts);
 router.get('/commented-posts', authMiddleware, getCommentedPosts);
 router.get('/:userId/challenges', authMiddleware, getUserChallengesController);
-
-// Profile
 router.get('/profile', authMiddleware, getProfileDetails);
 router.put('/profile', authMiddleware, updateProfile);
 router.put('/privacy', authMiddleware, togglePrivacyController);
 router.get('/:userId', authMiddleware, getUserDetails);
-
-// Follow / Unfollow
 router.post('/follow', authMiddleware, followUser);
 router.post('/unfollow', authMiddleware, unfollowUser);
 router.post('/remove-follower', authMiddleware, removeFollower);
-
-// Follow requests
 router.post('/follow-request/handle', authMiddleware, handleFollowRequest);
 router.post('/follow-request/accept', authMiddleware, acceptFollow);
 router.post('/follow-request/reject', authMiddleware, rejectFollow);
@@ -195,17 +264,24 @@ router.post('/follow-request/retract', authMiddleware, retractFollowRequest);
 router.get('/follow-requests/incoming', authMiddleware, getIncomingFollowRequestsController);
 router.get('/follow-requests/outgoing', authMiddleware, getOutgoingFollowRequestsController);
 router.get('/follow-status/:targetId', authMiddleware, getFollowStatusController);
-
-// Followers / Following
 router.get('/:userId/followers', authMiddleware, getFollowersController);
 router.get('/:userId/following', authMiddleware, getFollowingController);
-
-// Block / Unblock
 router.post('/block', authMiddleware, blockUserController);
 router.post('/unblock', authMiddleware, unblockUserController);
-
-// Auth
 router.post('/login', loginController);
 router.post('/logout', authMiddleware, logoutController);
+
+// New notifications route
+router.get('/notifications', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id; // Extracted from JWT by authMiddleware
+    const notifications = await getNotifications(userId);
+    res.set('Cache-Control', 'no-cache'); // Prevent 304 for testing
+    res.status(200).json(notifications);
+  } catch (error) {
+    console.error('getNotifications error:', error);
+    res.status(500).json({ error: 'Failed to fetch notifications', details: error.message });
+  }
+});
 
 module.exports = router;
