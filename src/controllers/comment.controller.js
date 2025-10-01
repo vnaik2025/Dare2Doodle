@@ -552,5 +552,28 @@ const getSingleComment = async (req, res) => {
   }
 };
 
+const markAsSubmission = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const comment = await getCommentById(id);
+    if (!comment) return res.status(404).json({ error: 'Comment not found' });
 
-module.exports = { listComments, getSingleComment,addComment, removeComment, updateComment, createSchema };
+    // Authorization: only owner or admin
+    if (comment.userId !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    // Only allow for top-level comments with media
+    if (comment.parentCommentId || !comment.mediaUrl) {
+      return res.status(400).json({ error: 'Invalid comment for submission' });
+    }
+
+    const updatedComment = await updateCommentService(id, { isSubmission: !comment.isSubmission });
+    res.json(updatedComment);
+  } catch (error) {
+    console.error('Error in markAsSubmission:', error);
+    res.status(500).json({ error: 'Failed to mark as submission', details: error.message });
+  }
+};
+
+module.exports = { listComments, getSingleComment,addComment,markAsSubmission, removeComment, updateComment, createSchema };

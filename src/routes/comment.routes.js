@@ -5,6 +5,7 @@ const {
   addComment,
   removeComment,
   updateComment,
+  markAsSubmission,
   getSingleComment,
 } = require('../controllers/comment.controller');
 const {
@@ -25,6 +26,7 @@ router.delete('/:id', authMiddleware, removeComment);
 router.post('/:id/like', authMiddleware, addLike);
 router.delete('/:id/like', authMiddleware, removeLike);
 router.get('/:id/like', getLikeInfo);
+router.put('/:id/submission', authMiddleware, markAsSubmission);
 
 
 router.get('/comment/:id', getSingleComment); 
